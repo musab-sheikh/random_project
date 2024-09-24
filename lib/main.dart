@@ -6,6 +6,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:screenshot/screenshot.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:share_plus/share_plus.dart';
 import 'dart:io';
 
 void main() {
@@ -48,6 +49,7 @@ class _KaleidoFlowScreenState extends State<KaleidoFlowScreen>
 
   // Sound Effects
   final AudioPlayer _soundPlayer = AudioPlayer();
+  final AudioPlayer _backgroundPlayer = AudioPlayer(); // For background music
 
   // Screenshot Controller
   final ScreenshotController _screenshotController = ScreenshotController();
@@ -72,6 +74,10 @@ class _KaleidoFlowScreenState extends State<KaleidoFlowScreen>
   ];
   int _currentPaletteIndex = 0;
 
+  // Action history for Undo/Redo
+  final List<List<KaleidoElement>> _history = [];
+  int _historyIndex = -1;
+
   @override
   void initState() {
     super.initState();
@@ -94,12 +100,16 @@ class _KaleidoFlowScreenState extends State<KaleidoFlowScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeStarfield();
     });
+
+    // Start background music
+    _startBackgroundMusic();
   }
 
   @override
   void dispose() {
     _animationController.dispose();
     _soundPlayer.dispose();
+    _backgroundPlayer.dispose();
     _elementTimer?.cancel();
     _starTimer?.cancel();
     super.dispose();
@@ -110,6 +120,7 @@ class _KaleidoFlowScreenState extends State<KaleidoFlowScreen>
     setState(() {
       for (var element in _elements) {
         element.updatePosition();
+        element.updateColorTransition();
       }
       // Remove elements that are out of bounds or faded
       _elements.removeWhere((element) => element.isDead());
@@ -164,6 +175,17 @@ class _KaleidoFlowScreenState extends State<KaleidoFlowScreen>
     }
   }
 
+  // Function to start background music
+  Future<void> _startBackgroundMusic() async {
+    try {
+      await _backgroundPlayer.setUrl('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3');
+      await _backgroundPlayer.setLoopMode(LoopMode.all);
+      await _backgroundPlayer.play();
+    } catch (e) {
+      debugPrint('Error playing background music: $e');
+    }
+  }
+
   // Function to add a new kaleido element
   void _addKaleidoElement(Offset position) {
     setState(() {
@@ -179,6 +201,13 @@ class _KaleidoFlowScreenState extends State<KaleidoFlowScreen>
           ),
         ),
       );
+
+      // Manage history for Undo functionality
+      if (_historyIndex < _history.length - 1) {
+        _history.removeRange(_historyIndex + 1, _history.length);
+      }
+      _history.add(List.from(_elements));
+      _historyIndex++;
     });
   }
 
@@ -234,6 +263,8 @@ class _KaleidoFlowScreenState extends State<KaleidoFlowScreen>
   Future<void> _clearCanvas() async {
     setState(() {
       _elements.clear();
+      _history.clear();
+      _historyIndex = -1;
     });
     // Play clear sound
     await _playSound('https://www.soundjay.com/buttons/sounds/button-3.mp3');
@@ -296,6 +327,48 @@ class _KaleidoFlowScreenState extends State<KaleidoFlowScreen>
     await _playSound('https://www.soundjay.com/buttons/sounds/button-2.mp3');
   }
 
+  // Function to share the artwork
+  // Future<void> _shareArtwork() async {
+  //   // Capture screenshot
+  //   final image = await _screenshotController.capture();
+  //   if (image == null) return;
+
+  //   // Save to temporary directory
+  //   final directory = await getTemporaryDirectory();
+  //   final String path = '${directory.path}/kaleido_flow_share.png';
+  //   final File file = File(path);
+  //   await file.writeAsBytes(image);
+
+  //   // Share the image
+  //   await Share.shareXFiles([path], text: 'Check out my KaleidoFlow artwork!');
+  // }
+
+  // Function to undo the last action
+  void _undo() {
+    if (_historyIndex > 0) {
+      setState(() {
+        _historyIndex--;
+        _elements
+          ..clear()
+          ..addAll(_history[_historyIndex]);
+      });
+      _playSound('https://www.soundjay.com/buttons/sounds/button-7.mp3');
+    }
+  }
+
+  // Function to redo the undone action
+  void _redo() {
+    if (_historyIndex < _history.length - 1) {
+      setState(() {
+        _historyIndex++;
+        _elements
+          ..clear()
+          ..addAll(_history[_historyIndex]);
+      });
+      _playSound('https://www.soundjay.com/buttons/sounds/button-8.mp3');
+    }
+  }
+
   // Function to start generating random elements periodically
   void _startGeneratingElements() {
     _elementTimer = Timer.periodic(const Duration(milliseconds: 300), (timer) {
@@ -310,6 +383,12 @@ class _KaleidoFlowScreenState extends State<KaleidoFlowScreen>
 
       _addKaleidoElement(position);
     });
+  }
+
+  // Function to reveal hidden Easter Egg features
+  void _checkForEasterEggs(Offset position) {
+    // Example: If user taps five times in quick succession in a specific area, unlock a secret theme
+    // This is a placeholder; implement your own logic as desired
   }
 
   @override
@@ -331,6 +410,21 @@ class _KaleidoFlowScreenState extends State<KaleidoFlowScreen>
             onPressed: _clearCanvas,
             tooltip: 'Clear Canvas',
           ),
+          IconButton(
+            icon: const Icon(Icons.undo),
+            onPressed: _undo,
+            tooltip: 'Undo',
+          ),
+          IconButton(
+            icon: const Icon(Icons.redo),
+            onPressed: _redo,
+            tooltip: 'Redo',
+          ),
+          // IconButton(
+          //   icon: const Icon(Icons.share),
+          //   // onPressed: _shareArtwork,
+          //   tooltip: 'Share Artwork',
+          // ),
           IconButton(
             icon: const Icon(Icons.repeat),
             onPressed: () => _changeSymmetry(1),
@@ -375,21 +469,116 @@ class _KaleidoFlowScreenState extends State<KaleidoFlowScreen>
           ],
         ),
       ),
+      // Overlay Controls (Sliders)
+      bottomNavigationBar: Container(
+        color: Colors.black54,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Size Slider
+            Row(
+              children: [
+                const Icon(Icons.aspect_ratio, color: Colors.white),
+                Expanded(
+                  child: Slider(
+                    activeColor: Colors.blueAccent,
+                    inactiveColor: Colors.grey,
+                    value: _currentSize,
+                    min: 10.0,
+                    max: 100.0,
+                    onChanged: (value) {
+                      setState(() {
+                        _currentSize = value;
+                      });
+                    },
+                  ),
+                ),
+                Text(
+                  '${_currentSize.toInt()}',
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ],
+            ),
+            // Speed Slider
+            Row(
+              children: [
+                const Icon(Icons.speed, color: Colors.white),
+                Expanded(
+                  child: Slider(
+                    activeColor: Colors.greenAccent,
+                    inactiveColor: Colors.grey,
+                    value: _currentSpeed,
+                    min: 0.5,
+                    max: 10.0,
+                    onChanged: (value) {
+                      setState(() {
+                        _currentSpeed = value;
+                      });
+                    },
+                  ),
+                ),
+                Text(
+                  '${_currentSpeed.toStringAsFixed(1)}',
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ],
+            ),
+            // Symmetry Switch
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text(
+                  'Symmetry: ',
+                  style: TextStyle(color: Colors.white),
+                ),
+                DropdownButton<int>(
+                  value: _symmetryCount,
+                  dropdownColor: Colors.black87,
+                  items: List.generate(11, (index) => index + 2)
+                      .map(
+                        (count) => DropdownMenuItem<int>(
+                          value: count,
+                          child: Text(
+                            '$count',
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() {
+                        _symmetryCount = value;
+                      });
+                    }
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
 
 // Enumeration for different shapes
-enum Shape { circle, square, triangle, star, hexagon }
+enum Shape { circle, square, triangle, star, hexagon, pentagon, octagon, heart }
 
 // Class representing each kaleido element
 class KaleidoElement {
   Offset position;
-  final Color color;
+  Color color;
   final double size;
   final Shape shape;
   Offset velocity;
   double opacity;
+
+  // For color transitions
+  Color startColor;
+  Color endColor;
+  double colorTransitionProgress;
 
   KaleidoElement({
     required this.position,
@@ -398,12 +587,27 @@ class KaleidoElement {
     required this.shape,
     required this.velocity,
     this.opacity = 1.0,
-  });
+  })  : startColor = color,
+        endColor = Colors.white,
+        colorTransitionProgress = 0.0;
 
   // Update the position based on velocity and fade out
   void updatePosition() {
     position += velocity;
     opacity -= 0.005; // Fade out over time
+  }
+
+  // Update color transition
+  void updateColorTransition() {
+    colorTransitionProgress += 0.005;
+    if (colorTransitionProgress >= 1.0) {
+      // Swap start and end colors for continuous transition
+      Color temp = startColor;
+      startColor = endColor;
+      endColor = temp;
+      colorTransitionProgress = 0.0;
+    }
+    color = Color.lerp(startColor, endColor, colorTransitionProgress)!;
   }
 
   // Check if the element is dead (fully faded or out of bounds)
@@ -532,6 +736,15 @@ class KaleidoPainter extends CustomPainter {
           case Shape.hexagon:
             _drawHexagon(canvas, Offset.zero, element.size / 2 * pulse, shapePaint);
             break;
+          case Shape.pentagon:
+            _drawPentagon(canvas, Offset.zero, element.size / 2 * pulse, shapePaint);
+            break;
+          case Shape.octagon:
+            _drawOctagon(canvas, Offset.zero, element.size / 2 * pulse, shapePaint);
+            break;
+          case Shape.heart:
+            _drawHeart(canvas, Offset.zero, element.size / 2 * pulse, shapePaint);
+            break;
         }
 
         canvas.restore();
@@ -575,6 +788,54 @@ class KaleidoPainter extends CustomPainter {
       }
       angle += pi / 3;
     }
+    path.close();
+    canvas.drawPath(path, paint);
+  }
+
+  // Function to draw a pentagon
+  void _drawPentagon(Canvas canvas, Offset position, double radius, Paint paint) {
+    final Path path = Path();
+    double angle = pi / 2;
+
+    for (int i = 0; i < 5; i++) {
+      double x = radius * cos(angle);
+      double y = radius * sin(angle);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+      angle += 2 * pi / 5;
+    }
+    path.close();
+    canvas.drawPath(path, paint);
+  }
+
+  // Function to draw an octagon
+  void _drawOctagon(Canvas canvas, Offset position, double radius, Paint paint) {
+    final Path path = Path();
+    double angle = pi / 8;
+
+    for (int i = 0; i < 8; i++) {
+      double x = radius * cos(angle);
+      double y = radius * sin(angle);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+      angle += pi / 4;
+    }
+    path.close();
+    canvas.drawPath(path, paint);
+  }
+
+  // Function to draw a heart
+  void _drawHeart(Canvas canvas, Offset position, double radius, Paint paint) {
+    final Path path = Path();
+    path.moveTo(0, radius / 2);
+    path.cubicTo(radius, -radius / 2, radius, radius, 0, radius * 1.5);
+    path.cubicTo(-radius, radius, -radius, -radius / 2, 0, radius / 2);
     path.close();
     canvas.drawPath(path, paint);
   }
